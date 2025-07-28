@@ -1,0 +1,295 @@
+-- =============================================
+-- KEY CUSTOMER SERVICE SQL QUERIES
+-- =============================================
+
+-- 1. CUSTOMER LOOKUP AND OVERVIEW
+-- Search customers by phone, email, name, or customer number
+WITH customer_search AS (
+  SELECT 
+    id, customer_number, first_name, last_name, email, phone,
+    customer_type, risk_profile, kyc_status, is_active
+  FROM customers 
+  WHERE 
+    phone LIKE '%' || $1 || '%'
+    OR email ILIKE '%' || $1 || '%'
+    OR CONCAT(first_name, ' ', last_name) ILIKE '%' || $1 || '%'
+    OR customer_number = $1
+    AND is_active = true
+  LIMIT 10
+)
+SELECT * FROM customer_search;
+
+-- Get comprehensive customer overview
+SELECT 
+  c.id, c.customer_number, c.first_name, c.last_name, c.email, c.phone,
+  c.risk_profile, c.kyc_status,
+  COUNT(DISTINCT ic.id) as active_contracts,
+  COUNT(DISTINCT io.id) as pending_orders,
+  COUNT(DISTINCT cl.id) as open_claims,
+  SUM(ic.coverage_amount) as total_coverage,
+  SUM(CASE 
+    WHEN ic.premium_frequency = 'monthly' THEN ic.premium_amount * 12
+    WHEN ic.premium_frequency = 'quarterly' THEN ic.premium_amount * 4
+    WHEN ic.premium_frequency = 'semi-annual' THEN ic.premium_amount * 2
+    ELSE ic.premium_amount
+  END) as annual_premium
+FROM customers c
+LEFT JOIN insurance_contracts ic ON c.id = ic.customer_id AND ic.contract_status = 'active'
+LEFT JOIN insurance_orders io ON c.id = io.customer_id AND io.order_status IN ('submitted', 'under_review')
+LEFT JOIN insurance_claims cl ON c.id = cl.customer_id AND cl.claim_status IN ('submitted', 'investigating', 'approved')
+WHERE c.id = $1
+GROUP BY c.id, c.customer_number, c.first_name, c.last_name, c.email, c.phone, c.risk_profile, c.kyc_status;
+
+-- 2. PRODUCT INFORMATION AND PRICING
+-- Get all active products with categories
+SELECT 
+  ip.id, ip.product_code, ip.name, ip.description,
+  ip.product_type, ip.coverage_type,
+  ip.min_coverage_amount, ip.max_coverage_amount,
+  ip.min_age, ip.max_age, ip.policy_term_years,
+  ip.requires_medical_exam, ip.renewable,
+  pc.name as category_name
+FROM insurance_products ip
+JOIN product_categories pc ON ip.category_id = pc.id
+WHERE ip.is_active = true
+ORDER BY ip.product_type, ip.name;
+
+-- Get product features and pricing tiers
+SELECT 
+  ip.name as product_name,
+  pf.feature_name, pf.description as feature_description,
+  pf.feature_type, pf.is_standard, pf.additional_premium_percentage,
+  pt.tier_name, pt.coverage_amount, pt.base_premium, pt.premium_frequency
+FROM insurance_products ip
+LEFT JOIN product_features pf ON ip.id = pf.product_id
+LEFT JOIN pricing_tiers pt ON ip.id = pt.product_id AND pt.is_active = true
+WHERE ip.id = $1
+ORDER BY pf.feature_type, pt.coverage_amount;
+
+-- Calculate pricing for a customer
+WITH customer_factors AS (
+  SELECT 
+    c.id, c.date_of_birth, c.gender, c.occupation, c.risk_profile,
+    EXTRACT(YEAR FROM AGE(c.date_of_birth)) as age
+  FROM customers c
+  WHERE c.id = $1
+),
+applicable_factors AS (
+  SELECT 
+    pf.factor_name, pf.factor_value, pf.multiplier
+  FROM pricing_factors pf, customer_factors cf
+  WHERE pf.product_id = $2
+    AND pf.is_active = true
+    AND (
+      (pf.factor_type = 'age_group' AND cf.age BETWEEN 
+        CAST(SPLIT_PART(pf.factor_value, '-', 1) AS INTEGER) AND 
+        CAST(SPLIT_PART(pf.factor_value, '-', 2) AS INTEGER))
+      OR (pf.factor_type = 'gender' AND pf.factor_value = cf.gender)
+      OR (pf.factor_type = 'risk_profile' AND pf.factor_value = cf.risk_profile)
+    )
+)
+SELECT 
+  pt.base_premium,
+  ROUND(pt.base_premium * (SELECT COALESCE(EXP(SUM(LN(multiplier))), 1) FROM applicable_factors), 2) as final_premium,
+  array_agg(af.factor_name || ': ' || af.multiplier) as applied_factors
+FROM pricing_tiers pt, applicable_factors af
+WHERE pt.product_id = $2 
+  AND pt.coverage_amount = $3
+  AND pt.is_active = true
+GROUP BY pt.base_premium;
+
+-- 3. ORDER MANAGEMENT
+-- Create new order (INSERT)
+INSERT INTO insurance_orders (
+  order_number, customer_id, product_id, order_status,
+  coverage_amount, premium_amount, premium_frequency,
+  application_date, effective_date, assigned_agent_id, notes
+) VALUES (
+  'ORD-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-' || LPAD(nextval('order_sequence'), 6, '0'),
+  $1, $2, 'submitted', $3, $4, $5, CURRENT_DATE, $6, $7, $8
+) RETURNING *;
+
+-- Get order status with history
+SELECT 
+  io.id, io.order_number, io.order_status, io.coverage_amount,
+  io.premium_amount, io.application_date, io.effective_date,
+  io.medical_exam_required, io.medical_exam_completed,
+  io.documents_received, io.notes,
+  c.first_name, c.last_name, c.email, c.phone,
+  ip.name as product_name, ip.product_type,
+  su.first_name as agent_first_name, su.last_name as agent_last_name
+FROM insurance_orders io
+JOIN customers c ON io.customer_id = c.id
+JOIN insurance_products ip ON io.product_id = ip.id
+LEFT JOIN system_users su ON io.assigned_agent_id = su.id
+WHERE io.order_number = $1;
+
+-- Get order status history
+SELECT 
+  osh.previous_status, osh.new_status, osh.changed_at,
+  osh.reason, osh.notes,
+  su.first_name, su.last_name
+FROM order_status_history osh
+LEFT JOIN system_users su ON osh.changed_by = su.id
+WHERE osh.order_id = (SELECT id FROM insurance_orders WHERE order_number = $1)
+ORDER BY osh.changed_at DESC;
+
+-- Update order status
+UPDATE insurance_orders 
+SET 
+  order_status = $2,
+  medical_exam_completed = COALESCE($3, medical_exam_completed),
+  documents_received = COALESCE($4, documents_received),
+  notes = COALESCE($5, notes),
+  updated_at = CURRENT_TIMESTAMP
+WHERE order_number = $1
+RETURNING *;
+
+-- 4. CONTRACT MANAGEMENT
+-- Get contract details with customer and product info
+SELECT 
+  ic.id, ic.policy_number, ic.contract_status,
+  ic.coverage_amount, ic.premium_amount, ic.premium_frequency,
+  ic.issue_date, ic.effective_date, ic.expiry_date,
+  ic.next_renewal_date, ic.cash_value, ic.surrender_value,
+  ic.auto_renewal, ic.last_premium_paid_date, ic.next_premium_due_date,
+  c.first_name, c.last_name, c.email, c.phone,
+  ip.name as product_name, ip.product_type, ip.coverage_type
+FROM insurance_contracts ic
+JOIN customers c ON ic.customer_id = c.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+WHERE ic.policy_number = $1;
+
+-- Check contracts expiring soon
+SELECT 
+  ic.policy_number, ic.expiry_date, ic.auto_renewal,
+  c.first_name, c.last_name, c.email, c.phone,
+  ip.name as product_name,
+  EXTRACT(DAYS FROM ic.expiry_date - CURRENT_DATE) as days_until_expiry
+FROM insurance_contracts ic
+JOIN customers c ON ic.customer_id = c.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+WHERE ic.contract_status = 'active'
+  AND ic.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '$1 days'
+ORDER BY ic.expiry_date;
+
+-- Get contract beneficiaries
+SELECT 
+  cb.beneficiary_type, cb.first_name, cb.last_name,
+  cb.relationship, cb.percentage, cb.phone, cb.email
+FROM contract_beneficiaries cb
+WHERE cb.contract_id = (SELECT id FROM insurance_contracts WHERE policy_number = $1)
+  AND cb.is_active = true
+ORDER BY cb.beneficiary_type, cb.percentage DESC;
+
+-- 5. PAYMENT MANAGEMENT
+-- Get payment history for a contract
+SELECT 
+  pp.payment_date, pp.due_date, pp.amount, pp.payment_status,
+  pp.payment_method, pp.late_fee, pp.grace_period_used,
+  CASE 
+    WHEN pp.payment_date > pp.due_date THEN pp.payment_date - pp.due_date
+    ELSE 0
+  END as days_late
+FROM premium_payments pp
+WHERE pp.contract_id = (SELECT id FROM insurance_contracts WHERE policy_number = $1)
+ORDER BY pp.due_date DESC;
+
+-- Find overdue payments
+SELECT 
+  ic.policy_number, ic.next_premium_due_date,
+  c.first_name, c.last_name, c.email, c.phone,
+  ip.name as product_name,
+  ic.premium_amount,
+  CURRENT_DATE - ic.next_premium_due_date as days_overdue,
+  ic.grace_period_days - (CURRENT_DATE - ic.next_premium_due_date) as grace_days_remaining
+FROM insurance_contracts ic
+JOIN customers c ON ic.customer_id = c.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+WHERE ic.contract_status = 'active'
+  AND ic.next_premium_due_date < CURRENT_DATE
+  AND (CURRENT_DATE - ic.next_premium_due_date) <= ic.grace_period_days
+ORDER BY days_overdue DESC;
+
+-- 6. CLAIMS MANAGEMENT
+-- Get customer claims
+SELECT 
+  cl.claim_number, cl.claim_type, cl.claim_amount, cl.claim_status,
+  cl.incident_date, cl.report_date, cl.description,
+  cl.approval_amount, cl.rejection_reason,
+  ic.policy_number,
+  ip.name as product_name
+FROM insurance_claims cl
+JOIN insurance_contracts ic ON cl.contract_id = ic.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+WHERE cl.customer_id = $1
+ORDER BY cl.report_date DESC;
+
+-- Get claim details with documents
+SELECT 
+  cl.claim_number, cl.claim_type, cl.claim_amount, cl.claim_status,
+  cl.incident_date, cl.report_date, cl.description,
+  cl.investigation_notes, cl.approval_amount, cl.rejection_reason,
+  c.first_name, c.last_name, c.email, c.phone,
+  ic.policy_number, ip.name as product_name,
+  cd.document_type, cd.document_name, cd.upload_date, cd.is_verified
+FROM insurance_claims cl
+JOIN customers c ON cl.customer_id = c.id
+JOIN insurance_contracts ic ON cl.contract_id = ic.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+LEFT JOIN customer_documents cd ON cl.customer_id = cd.customer_id 
+  AND cd.document_type LIKE '%claim%'
+WHERE cl.claim_number = $1;
+
+-- 7. CUSTOMER INTERACTIONS AND SERVICE
+-- Log customer interaction
+INSERT INTO customer_interactions (
+  customer_id, agent_id, interaction_type, subject, description,
+  status, priority, related_contract_id, related_order_id,
+  follow_up_required, follow_up_date
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING *;
+
+-- Get recent customer interactions
+SELECT 
+  ci.interaction_date, ci.interaction_type, ci.subject,
+  ci.description, ci.resolution, ci.status, ci.priority,
+  ci.follow_up_required, ci.follow_up_date, ci.satisfaction_rating,
+  su.first_name as agent_first_name, su.last_name as agent_last_name
+FROM customer_interactions ci
+LEFT JOIN system_users su ON ci.agent_id = su.id
+WHERE ci.customer_id = $1
+ORDER BY ci.interaction_date DESC
+LIMIT 10;
+
+-- 8. RENEWALS AND NOTIFICATIONS
+-- Get contracts due for renewal
+SELECT 
+  ic.policy_number, ic.next_renewal_date, ic.auto_renewal,
+  ic.premium_amount, ic.coverage_amount,
+  c.first_name, c.last_name, c.email, c.phone,
+  ip.name as product_name,
+  EXTRACT(DAYS FROM ic.next_renewal_date - CURRENT_DATE) as days_until_renewal
+FROM insurance_contracts ic
+JOIN customers c ON ic.customer_id = c.id
+JOIN insurance_products ip ON ic.product_id = ip.id
+WHERE ic.contract_status = 'active'
+  AND ic.next_renewal_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '$1 days'
+ORDER BY ic.next_renewal_date;
+
+-- Check for sent renewal notifications
+SELECT 
+  rn.notification_type, rn.scheduled_date, rn.sent_date, rn.status,
+  rn.notification_method
+FROM renewal_notifications rn
+WHERE rn.contract_id = (SELECT id FROM insurance_contracts WHERE policy_number = $1)
+ORDER BY rn.scheduled_date DESC;
+
+-- 9. CUSTOMER SERVICE DASHBOARD
+-- Get agent dashboard metrics
+WITH agent_stats AS (
+  SELECT 
+    COUNT(CASE WHEN io.application_date = CURRENT_DATE THEN 1 END) as new_orders_today,
+    COUNT(CASE WHEN io.approval_date = CURRENT_DATE THEN 1 END) as orders_approved_today,
+    COUNT(CASE WHEN ic.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30 THEN 1 END) as contracts_expiring_30days,
+    COUNT(CASE WHEN ic.next_premium_due_date < CURRENT_DATE AND ic

@@ -1,0 +1,224 @@
+# requirements.txt - Additional dependencies for RAG-based Vanna implementation
+
+# Core Vanna dependencies
+vanna[chromadb,openai]>=0.3.0
+
+# Vector database and embeddings
+chromadb>=0.4.0
+sentence-transformers>=2.2.2
+
+# Database connectors (choose based on your needs)
+psycopg2-binary>=2.9.0  # PostgreSQL
+pymysql>=1.0.0          # MySQL
+pyodbc>=4.0.0           # SQL Server
+sqlite3                 # SQLite (built-in)
+
+# Data processing
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Async support
+asyncio
+aiofiles
+
+# Environment configuration
+python-dotenv>=0.20.0
+
+# ===================================
+# .env - Environment Variables Configuration
+# ===================================
+
+# OpenAI Configuration (Required for RAG)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Vanna Configuration
+VANNA_MODEL=gpt-3.5-turbo
+VANNA_TEMPERATURE=0.0
+VANNA_MAX_TOKENS=1000
+
+# ChromaDB Configuration
+CHROMA_DB_DIR=./vanna_cache/chroma
+SENTENCE_TRANSFORMERS_HOME=./vanna_cache/sentence_transformers
+TRANSFORMERS_CACHE=./vanna_cache/models
+HF_HOME=./vanna_cache/models
+
+# Database Configuration
+DATABASE_URL=sqlite:///./chatbot.sqlite
+
+# Logging Configuration
+LOG_LEVEL=INFO
+VANNA_LOG_LEVEL=DEBUG
+
+# Performance Configuration
+MAX_TRAINING_EXAMPLES=1000
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+
+# ===================================
+# docker-compose.yml - Docker Configuration
+# ===================================
+
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VANNA_MODEL=${VANNA_MODEL:-gpt-3.5-turbo}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./chatbot.sqlite}
+    volumes:
+      - ./vanna_cache:/app/vanna_cache
+      - ./sqlite_data:/app/sqlite_data
+    depends_on:
+      - postgres
+    
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+
+# ===================================
+# Dockerfile - Container Configuration
+# ===================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    unixodbc-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create cache directories
+RUN mkdir -p vanna_cache/models vanna_cache/chroma vanna_cache/sentence_transformers
+
+# Copy application code
+COPY . .
+
+# Set environment variables for caching
+ENV SENTENCE_TRANSFORMERS_HOME=/app/vanna_cache/sentence_transformers
+ENV TRANSFORMERS_CACHE=/app/vanna_cache/models
+ENV HF_HOME=/app/vanna_cache/models
+ENV CHROMA_CACHE_DIR=/app/vanna_cache/chroma
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# ===================================
+# config.py - Application Configuration
+# ===================================
+
+import os
+from typing import Optional
+from pydantic import BaseSettings
+
+class VannaConfig(BaseSettings):
+    """Configuration for Vanna RAG system."""
+    
+    # OpenAI Configuration
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_model: str = os.getenv("VANNA_MODEL", "gpt-3.5-turbo")
+    openai_temperature: float = float(os.getenv("VANNA_TEMPERATURE", "0.0"))
+    openai_max_tokens: int = int(os.getenv("VANNA_MAX_TOKENS", "1000"))
+    
+    # ChromaDB Configuration
+    chroma_db_dir: str = os.getenv("CHROMA_DB_DIR", "./vanna_cache/chroma")
+    sentence_transformers_home: str = os.getenv("SENTENCE_TRANSFORMERS_HOME", "./vanna_cache/sentence_transformers")
+    transformers_cache: str = os.getenv("TRANSFORMERS_CACHE", "./vanna_cache/models")
+    hf_home: str = os.getenv("HF_HOME", "./vanna_cache/models")
+    
+    # Training Configuration
+    max_training_examples: int = int(os.getenv("MAX_TRAINING_EXAMPLES", "1000"))
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "1000"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
+    
+    # Database Configuration
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./chatbot.sqlite")
+    
+    # Logging Configuration
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    vanna_log_level: str = os.getenv("VANNA_LOG_LEVEL", "DEBUG")
+    
+    class Config:
+        env_file = ".env"
+
+# Global configuration instance
+vanna_config = VannaConfig()
+
+# ===================================
+# setup.py - Installation Script
+# ===================================
+
+from setuptools import setup, find_packages
+
+setup(
+    name="database-chat-rag",
+    version="1.0.0",
+    description="RAG-based Database Chat using Vanna AI",
+    packages=find_packages(),
+    install_requires=[
+        "fastapi>=0.100.0",
+        "uvicorn>=0.20.0",
+        "sqlalchemy>=2.0.0",
+        "alembic>=1.10.0",
+        "vanna[chromadb,openai]>=0.3.0",
+        "chromadb>=0.4.0",
+        "sentence-transformers>=2.2.2",
+        "pandas>=1.5.0",
+        "numpy>=1.21.0",
+        "python-dotenv>=0.20.0",
+        "psycopg2-binary>=2.9.0",
+        "pymysql>=1.0.0",
+        "pyodbc>=4.0.0",
+        "pydantic>=2.0.0",
+        "python-multipart>=0.0.6",
+    ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-asyncio>=0.20.0",
+            "black>=22.0.0",
+            "isort>=5.10.0",
+            "flake8>=4.0.0",
+        ]
+    },
+    python_requires=">=3.8",
+)
+
+# ===================================
+# Installation Instructions
+# ===================================
+
+"""
+INSTALLATION GUIDE FOR RAG-BASED VANNA IMPLEMENTATION
+
+1. Prerequisites:
+   - Python 3.8 or higher
+   - OpenAI API key
+   - Database server (PostgreSQL, MySQL, SQL Server, or SQLite)
+
+2. Basic Installation:
+   ```bash
+   # Clone the repository
+   git clone <your-repo-url>
+   cd database-chat-rag

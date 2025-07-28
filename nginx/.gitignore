@@ -1,0 +1,87 @@
+# Nginx Directory - Git Ignore File
+
+# ==========================================
+# SSL CERTIFICATES & KEYS
+# ==========================================
+# SSL certificates should never be committed to git
+ssl/*.crt
+ssl/*.key
+ssl/*.pem
+ssl/*.p12
+ssl/*.pfx
+ssl/*.cer
+ssl/*.der
+
+# Certificate signing requests
+ssl/*.csr
+
+# Private keys
+ssl/*private*
+ssl/*key*
+
+# Let's Encrypt certificates
+ssl/letsencrypt/
+ssl/certbot/
+
+# ==========================================
+# LOG FILES
+# ==========================================
+# Nginx log files
+logs/
+*.log
+access.log*
+error.log*
+
+# Log rotation files
+*.log.1
+*.log.2
+*.log.gz
+
+# ==========================================
+# CACHE & TEMPORARY FILES
+# ==========================================
+# Nginx cache
+cache/
+fastcgi_cache/
+proxy_cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# ==========================================
+# BACKUP FILES
+# ==========================================
+# Configuration backups
+*.conf.bak
+*.conf.backup
+*.conf.old
+
+# ==========================================
+# RUNTIME FILES
+# ==========================================
+# PID files
+*.pid
+
+# Socket files
+*.sock
+
+# ==========================================
+# DEVELOPMENT FILES
+# ==========================================
+# Test configurations
+*test*
+*dev*
+*local*
+
+# ==========================================
+# KEEP THESE FILES
+# ==========================================
+# Keep the main configuration files
+!conf.d/
+!conf.d/*.conf
+!nginx.conf
+
+# Keep SSL directory structure but not the certificates
+!ssl/
+!ssl/.gitkeep

@@ -1,0 +1,461 @@
+// =============================================
+// INSURANCE API TYPES AND FUNCTIONS
+// =============================================
+
+// Core Types
+export interface Customer {
+  id: string;
+  customerNumber: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: Date;
+  riskProfile: 'low' | 'medium' | 'high';
+  customerType: 'individual' | 'business';
+  kycStatus: 'pending' | 'verified' | 'rejected';
+  isActive: boolean;
+  customerNotes?: string;
+}
+
+export interface InsuranceProduct {
+  id: string;
+  productCode: string;
+  name: string;
+  categoryId: string;
+  description: string;
+  productType: 'life' | 'health' | 'auto' | 'home' | 'business';
+  coverageType: string;
+  minCoverageAmount: number;
+  maxCoverageAmount: number;
+  minAge: number;
+  maxAge: number;
+  waitingPeriodDays: number;
+  policyTermYears: number;
+  renewable: boolean;
+  requiresMedicalExam: boolean;
+  isActive: boolean;
+}
+
+export interface ProductFeature {
+  id: string;
+  productId: string;
+  featureName: string;
+  description: string;
+  featureType: 'coverage' | 'benefit' | 'exclusion' | 'condition';
+  isStandard: boolean;
+  additionalPremiumPercentage: number;
+}
+
+export interface PricingTier {
+  id: string;
+  productId: string;
+  tierName: string;
+  coverageAmount: number;
+  basePremium: number;
+  premiumFrequency: 'monthly' | 'quarterly' | 'semi-annual' | 'annual';
+  currency: string;
+  effectiveDate: Date;
+  expiryDate?: Date;
+  isActive: boolean;
+}
+
+export interface InsuranceOrder {
+  id: string;
+  orderNumber: string;
+  customerId: string;
+  productId: string;
+  orderStatus: 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected' | 'cancelled';
+  coverageAmount: number;
+  premiumAmount: number;
+  premiumFrequency: string;
+  applicationDate: Date;
+  effectiveDate?: Date;
+  expiryDate?: Date;
+  assignedAgentId?: string;
+  medicalExamRequired: boolean;
+  medicalExamCompleted: boolean;
+  documentsReceived: boolean;
+  approvalDate?: Date;
+  rejectionReason?: string;
+  notes?: string;
+}
+
+export interface InsuranceContract {
+  id: string;
+  policyNumber: string;
+  orderId: string;
+  customerId: string;
+  productId: string;
+  contractStatus: 'active' | 'suspended' | 'lapsed' | 'cancelled' | 'expired' | 'claimed';
+  coverageAmount: number;
+  premiumAmount: number;
+  premiumFrequency: string;
+  issueDate: Date;
+  effectiveDate: Date;
+  expiryDate?: Date;
+  nextRenewalDate?: Date;
+  cashValue: number;
+  surrenderValue: number;
+  autoRenewal: boolean;
+  gracePeriodDays: number;
+  lastPremiumPaidDate?: Date;
+  nextPremiumDueDate?: Date;
+}
+
+export interface CustomerInteraction {
+  id: string;
+  customerId: string;
+  agentId?: string;
+  interactionType: 'call' | 'email' | 'chat' | 'visit';
+  interactionDate: Date;
+  subject: string;
+  description: string;
+  resolution?: string;
+  status: 'open' | 'resolved' | 'escalated';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  relatedContractId?: string;
+  relatedOrderId?: string;
+  relatedClaimId?: string;
+  followUpRequired: boolean;
+  followUpDate?: Date;
+  satisfactionRating?: number;
+}
+
+export interface InsuranceClaim {
+  id: string;
+  claimNumber: string;
+  contractId: string;
+  customerId: string;
+  claimType: string;
+  claimAmount: number;
+  claimStatus: 'submitted' | 'investigating' | 'approved' | 'rejected' | 'paid' | 'closed';
+  incidentDate: Date;
+  reportDate: Date;
+  description: string;
+  assignedAdjusterId?: string;
+  investigationNotes?: string;
+  approvalAmount?: number;
+  rejectionReason?: string;
+  paymentDate?: Date;
+}
+
+// API Response Types
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+// Request Types
+export interface CreateOrderRequest {
+  customerId: string;
+  productId: string;
+  coverageAmount: number;
+  premiumFrequency: 'monthly' | 'quarterly' | 'semi-annual' | 'annual';
+  effectiveDate: Date;
+  riders?: {
+    riderName: string;
+    riderType: string;
+    coverageAmount: number;
+    additionalPremium: number;
+  }[];
+  notes?: string;
+}
+
+export interface UpdateOrderRequest {
+  orderStatus?: string;
+  coverageAmount?: number;
+  premiumAmount?: number;
+  effectiveDate?: Date;
+  medicalExamCompleted?: boolean;
+  documentsReceived?: boolean;
+  notes?: string;
+}
+
+export interface PricingRequest {
+  productId: string;
+  coverageAmount: number;
+  customerId: string;
+  premiumFrequency: 'monthly' | 'quarterly' | 'semi-annual' | 'annual';
+  additionalRiders?: string[];
+}
+
+export interface ContractSearchParams {
+  customerId?: string;
+  policyNumber?: string;
+  productType?: string;
+  contractStatus?: string;
+  expiryDateFrom?: Date;
+  expiryDateTo?: Date;
+  nextRenewalDateFrom?: Date;
+  nextRenewalDateTo?: Date;
+  page?: number;
+  pageSize?: number;
+}
+
+// =============================================
+// CUSTOMER SERVICE API FUNCTIONS
+// =============================================
+
+export class InsuranceApiService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  // Product Information Functions
+  async getProducts(filters?: {
+    productType?: string;
+    categoryId?: string;
+    isActive?: boolean;
+  }): Promise<ApiResponse<InsuranceProduct[]>> {
+    const params = new URLSearchParams();
+    if (filters?.productType) params.append('productType', filters.productType);
+    if (filters?.categoryId) params.append('categoryId', filters.categoryId);
+    if (filters?.isActive !== undefined) params.append('isActive', filters.isActive.toString());
+
+    const response = await fetch(`${this.baseUrl}/products?${params}`);
+    return response.json();
+  }
+
+  async getProductDetails(productId: string): Promise<ApiResponse<{
+    product: InsuranceProduct;
+    features: ProductFeature[];
+    pricingTiers: PricingTier[];
+  }>> {
+    const response = await fetch(`${this.baseUrl}/products/${productId}/details`);
+    return response.json();
+  }
+
+  async getProductPricing(request: PricingRequest): Promise<ApiResponse<{
+    basePremium: number;
+    finalPremium: number;
+    pricingFactors: Array<{
+      factorName: string;
+      factorValue: string;
+      multiplier: number;
+    }>;
+    riderPremiums: Array<{
+      riderName: string;
+      premium: number;
+    }>;
+  }>> {
+    const response = await fetch(`${this.baseUrl}/products/pricing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+    return response.json();
+  }
+
+  // Customer Functions
+  async searchCustomers(query: string): Promise<ApiResponse<Customer[]>> {
+    const response = await fetch(`${this.baseUrl}/customers/search?q=${encodeURIComponent(query)}`);
+    return response.json();
+  }
+
+  async getCustomerDetails(customerId: string): Promise<ApiResponse<{
+    customer: Customer;
+    activeContracts: InsuranceContract[];
+    recentOrders: InsuranceOrder[];
+    recentInteractions: CustomerInteraction[];
+  }>> {
+    const response = await fetch(`${this.baseUrl}/customers/${customerId}/details`);
+    return response.json();
+  }
+
+  // Order Management Functions
+  async createOrder(orderData: CreateOrderRequest): Promise<ApiResponse<InsuranceOrder>> {
+    const response = await fetch(`${this.baseUrl}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    return response.json();
+  }
+
+  async getOrderStatus(orderNumber: string): Promise<ApiResponse<{
+    order: InsuranceOrder;
+    statusHistory: Array<{
+      previousStatus: string;
+      newStatus: string;
+      changedAt: Date;
+      reason: string;
+    }>;
+  }>> {
+    const response = await fetch(`${this.baseUrl}/orders/${orderNumber}/status`);
+    return response.json();
+  }
+
+  async updateOrder(orderId: string, updates: UpdateOrderRequest): Promise<ApiResponse<InsuranceOrder>> {
+    const response = await fetch(`${this.baseUrl}/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    return response.json();
+  }
+
+  async getCustomerOrders(customerId: string, status?: string): Promise<ApiResponse<InsuranceOrder[]>> {
+    const params = status ? `?status=${status}` : '';
+    const response = await fetch(`${this.baseUrl}/customers/${customerId}/orders${params}`);
+    return response.json();
+  }
+
+  // Contract Management Functions
+  async searchContracts(params: ContractSearchParams): Promise<ApiResponse<PaginatedResponse<InsuranceContract>>> {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        searchParams.append(key, value.toString());
+      }
+    });
+
+    const response = await fetch(`${this.baseUrl}/contracts/search?${searchParams}`);
+    return response.json();
+  }
+
+  async getContractDetails(policyNumber: string): Promise<ApiResponse<{
+    contract: InsuranceContract;
+    customer: Customer;
+    product: InsuranceProduct;
+    beneficiaries: Array<{
+      firstName: string;
+      lastName: string;
+      relationship: string;
+      percentage: number;
+    }>;
+    paymentHistory: Array<{
+      paymentDate: Date;
+      amount: number;
+      status: string;
+    }>;
+  }>> {
+    const response = await fetch(`${this.baseUrl}/contracts/${policyNumber}/details`);
+    return response.json();
+  }
+
+  async checkContractExpiry(customerId?: string, daysAhead?: number): Promise<ApiResponse<Array<{
+    contract: InsuranceContract;
+    customer: Customer;
+    product: InsuranceProduct;
+    daysUntilExpiry: number;
+  }>>> {
+    const params = new URLSearchParams();
+    if (customerId) params.append('customerId', customerId);
+    if (daysAhead) params.append('daysAhead', daysAhead.toString());
+
+    const response = await fetch(`${this.baseUrl}/contracts/expiring?${params}`);
+    return response.json();
+  }
+
+  async getContractRenewalStatus(policyNumber: string): Promise<ApiResponse<{
+    contract: InsuranceContract;
+    renewalEligible: boolean;
+    renewalDate: Date;
+    newPremium: number;
+    requiredDocuments: string[];
+    autoRenewal: boolean;
+  }>> {
+    const response = await fetch(`${this.baseUrl}/contracts/${policyNumber}/renewal-status`);
+    return response.json();
+  }
+
+  // Claims Functions
+  async getCustomerClaims(customerId: string): Promise<ApiResponse<InsuranceClaim[]>> {
+    const response = await fetch(`${this.baseUrl}/customers/${customerId}/claims`);
+    return response.json();
+  }
+
+  async getClaimDetails(claimNumber: string): Promise<ApiResponse<{
+    claim: InsuranceClaim;
+    contract: InsuranceContract;
+    customer: Customer;
+    documents: Array<{
+      documentType: string;
+      documentName: string;
+      uploadDate: Date;
+      isVerified: boolean;
+    }>;
+  }>> {
+    const response = await fetch(`${this.baseUrl}/claims/${claimNumber}/details`);
+    return response.json();
+  }
+
+  // Customer Interaction Functions
+  async logInteraction(interaction: Omit<CustomerInteraction, 'id' | 'interactionDate'>): Promise<ApiResponse<CustomerInteraction>> {
+    const response = await fetch(`${this.baseUrl}/interactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(interaction)
+    });
+    return response.json();
+  }
+
+  async getCustomerInteractions(customerId: string, limit?: number): Promise<ApiResponse<CustomerInteraction[]>> {
+    const params = limit ? `?limit=${limit}` : '';
+    const response = await fetch(`${this.baseUrl}/customers/${customerId}/interactions${params}`);
+    return response.json();
+  }
+
+  // Payment Functions
+  async getPaymentHistory(policyNumber: string): Promise<ApiResponse<Array<{
+    paymentDate: Date;
+    dueDate: Date;
+    amount: number;
+    status: string;
+    paymentMethod: string;
+    lateFee: number;
+    gracePeriodUsed: boolean;
+  }>>> {
+    const response = await fetch(`${this.baseUrl}/contracts/${policyNumber}/payments`);
+    return response.json();
+  }
+
+  async getOverduePayments(customerId?: string): Promise<ApiResponse<Array<{
+    contract: InsuranceContract;
+    customer: Customer;
+    overdueAmount: number;
+    daysPastDue: number;
+    gracePeriodRemaining: number;
+  }>>> {
+    const params = customerId ? `?customerId=${customerId}` : '';
+    const response = await fetch(`${this.baseUrl}/payments/overdue${params}`);
+    return response.json();
+  }
+
+  // Document Functions
+  async getCustomerDocuments(customerId: string, documentType?: string): Promise<ApiResponse<Array<{
+    id: string;
+    documentType: string;
+    documentName: string;
+    uploadDate: Date;
+    isVerified: boolean;
+    expiryDate?: Date;
+  }>>> {
+    const params = documentType ? `?documentType=${documentType}` : '';
+    const response = await fetch(`${this.baseUrl}/customers/${customerId}/documents${params}`);
+    return response.json();
+  }
+
+  // Reporting Functions
+  async getCustomerSummary(customerId: string): Promise<ApiResponse<{
+    customer: Customer;
+    totalCoverageAmount: number;
+    totalPremiumAmount: number;
+    activeContracts: number;
+    pendingOrders: number;
+    openClaims: number;
+    recentInteractions: number;
+    pay

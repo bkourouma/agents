@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Frontend API</title>
+</head>
+<body>
+    <h1>Test Frontend API Communication</h1>
+    <button onclick="testListCustomers()">Test List Customers</button>
+    <button onclick="testCreateCustomer()">Test Create Customer</button>
+    <div id="results"></div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3006';
+
+        async function testListCustomers() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/insurance/clients/recherche?q=&limite=10`);
+                const data = await response.json();
+                document.getElementById('results').innerHTML = `
+                    <h3>List Customers Result:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('results').innerHTML = `
+                    <h3>List Customers Error:</h3>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+
+        async function testCreateCustomer() {
+            try {
+                const customerData = {
+                    customer_number: "FRONTEND001",
+                    first_name: "Frontend",
+                    last_name: "Test",
+                    email: "frontend-test@example.com",
+                    phone: "+33 1 22 22 22 22",
+                    city: "Paris",
+                    customer_type: "individual",
+                    risk_profile: "medium",
+                    kyc_status: "pending"
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/insurance/clients`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(customerData)
+                });
+
+                const data = await response.json();
+                document.getElementById('results').innerHTML = `
+                    <h3>Create Customer Result (Status: ${response.status}):</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('results').innerHTML = `
+                    <h3>Create Customer Error:</h3>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

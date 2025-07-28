@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Frontend Issue</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .error { background-color: #ffebee; }
+        .success { background-color: #e8f5e9; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Debug Frontend API Issue</h1>
+    
+    <button onclick="testCORS()">Test CORS</button>
+    <button onclick="testListCustomers()">Test List Customers</button>
+    <button onclick="testCreateCustomer()">Test Create Customer (Direct)</button>
+    <button onclick="testCreateCustomerFrontendFormat()">Test Create Customer (Frontend Format)</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3006';
+
+        function addResult(title, content, isError = false) {
+            const div = document.createElement('div');
+            div.className = `result ${isError ? 'error' : 'success'}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        async function testCORS() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/docs`);
+                addResult('CORS Test', `Status: ${response.status} - CORS is working`);
+            } catch (error) {
+                addResult('CORS Test', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function testListCustomers() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/insurance/clients/recherche?q=&limite=10`);
+                const data = await response.json();
+                addResult('List Customers', JSON.stringify(data, null, 2));
+            } catch (error) {
+                addResult('List Customers', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function testCreateCustomer() {
+            try {
+                const customerData = {
+                    customer_number: "DEBUG001",
+                    first_name: "Debug",
+                    last_name: "Test",
+                    email: "debug@example.com",
+                    phone: "+33 1 33 33 33 33",
+                    city: "Paris",
+                    customer_type: "individual",
+                    risk_profile: "medium",
+                    kyc_status: "pending"
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/insurance/clients`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(customerData)
+                });
+
+                const data = await response.json();
+                addResult(`Create Customer Direct (Status: ${response.status})`, JSON.stringify(data, null, 2), !response.ok);
+            } catch (error) {
+                addResult('Create Customer Direct', `Error: ${error.message}`, true);
+            }
+        }
+
+        async function testCreateCustomerFrontendFormat() {
+            try {
+                // This simulates what the frontend form would send
+                const frontendData = {
+                    customerNumber: "FRONTEND001",
+                    firstName: "Frontend",
+                    lastName: "Test",
+                    email: "frontend@example.com",
+                    phone: "+33 1 44 44 44 44",
+                    dateOfBirth: "",
+                    city: "Lyon",
+                    customerType: "individual",
+                    riskProfile: "medium",
+                    kycStatus: "pending"
+                };
+
+                // Convert to backend format (like the frontend should do)
+                const customerData = {
+                    customer_number: frontendData.customerNumber || `CLI${Date.now()}`,
+                    first_name: frontendData.firstName,
+                    last_name: frontendData.lastName,
+                    email: frontendData.email,
+                    phone: frontendData.phone || null,
+                    date_of_birth: frontendData.dateOfBirth || null,
+                    city: frontendData.city || null,
+                    customer_type: frontendData.customerType,
+                    risk_profile: frontendData.riskProfile,
+                    kyc_status: frontendData.kycStatus
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/insurance/clients`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(customerData)
+                });
+
+                const data = await response.json();
+                addResult(`Create Customer Frontend Format (Status: ${response.status})`, JSON.stringify(data, null, 2), !response.ok);
+            } catch (error) {
+                addResult('Create Customer Frontend Format', `Error: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html>

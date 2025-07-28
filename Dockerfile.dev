@@ -1,0 +1,61 @@
+# Development Dockerfile for AI Agent Platform Backend
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Install development dependencies
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-asyncio \
+    pytest-cov \
+    black \
+    isort \
+    mypy \
+    flake8
+
+# Create necessary directories
+RUN mkdir -p /app/data \
+    /app/agent_documents \
+    /app/agent_vectors \
+    /app/vanna_cache \
+    /app/logs \
+    /app/src
+
+# Set environment variables
+ENV PYTHONPATH=/app \
+    PORT=3006 \
+    ENVIRONMENT=development \
+    DEBUG=true
+
+# Expose port
+EXPOSE 3006
+
+# Default command (can be overridden)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3006", "--reload"]

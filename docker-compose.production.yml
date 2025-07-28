@@ -1,0 +1,185 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-agents-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_agents_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ai_agents_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - ai-agents-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_agents_user} -d ${POSTGRES_DB:-ai_agents_db}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ai-agents-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - ai-agents-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # FastAPI Backend
+  ai-agents-backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-agents-backend
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    environment:
+      # Application Settings
+      ENVIRONMENT: production
+      PORT: 3006
+      HOST: 0.0.0.0
+      PYTHONUNBUFFERED: "1"
+      WORKERS: ${WORKERS:-2}
+
+      # Database Configuration
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ai_agents_user}:${POSTGRES_PASSWORD:-secure_password}@postgres:5432/${POSTGRES_DB:-ai_agents_db}
+      
+      # Redis Configuration
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_password}@redis:6379/0
+
+      # API Keys (will be set via .env file)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # Security
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-jwt-secret-change-this}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+
+      # URLs
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3003}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:3006}
+
+      # Azure Services (optional)
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+      AZURE_KEY_VAULT_URL: ${AZURE_KEY_VAULT_URL:-}
+
+      # WhatsApp Integration (optional)
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEBUG: "false"
+
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+      - ./agent_documents:/app/agent_documents
+      - ./agent_vectors:/app/agent_vectors
+      - ./vanna_cache:/app/vanna_cache
+      - ./logs:/app/logs
+
+    networks:
+      - ai-agents-network
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # React Frontend
+  ai-agents-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        # Build arguments for React app
+        VITE_API_URL: ${FRONTEND_API_URL:-https://your-domain.com/api}
+        VITE_WS_URL: ${FRONTEND_WS_URL:-wss://your-domain.com/ws}
+        NODE_ENV: production
+    container_name: ai-agents-frontend
+    restart: unless-stopped
+    ports:
+      - "3003:80"
+    networks:
+      - ai-agents-network
+    depends_on:
+      - ai-agents-backend
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: ai-agents-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+      # Static files (if needed)
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    networks:
+      - ai-agents-network
+    depends_on:
+      - ai-agents-backend
+      - ai-agents-frontend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  ai-agents-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ai_agents_data:
+    driver: local
+  ai_agents_logs:
+    driver: local

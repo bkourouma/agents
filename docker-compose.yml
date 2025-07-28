@@ -1,0 +1,102 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database (Development)
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: ai-agents-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_agents_dev
+      POSTGRES_USER: ai_agents_user
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    networks:
+      - ai-agents-dev-network
+
+  # Redis Cache (Development)
+  redis-dev:
+    image: redis:7-alpine
+    container_name: ai-agents-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    networks:
+      - ai-agents-dev-network
+
+  # FastAPI Backend (Development)
+  ai-agents-backend-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: ai-agents-backend-dev
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    environment:
+      # Application Settings
+      ENVIRONMENT: development
+      PORT: 3006
+      HOST: 0.0.0.0
+      PYTHONUNBUFFERED: "1"
+      DEBUG: "true"
+
+      # Database Configuration
+      DATABASE_URL: postgresql://ai_agents_user:dev_password@postgres-dev:5432/ai_agents_dev
+      
+      # Redis Configuration
+      REDIS_URL: redis://redis-dev:6379/0
+
+      # API Keys (from .env file)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # Security (development keys)
+      SECRET_KEY: dev-secret-key-not-for-production
+      JWT_SECRET_KEY: dev-jwt-secret-key-not-for-production
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRATION_HOURS: 24
+
+      # URLs
+      FRONTEND_URL: http://localhost:3003
+      BACKEND_URL: http://localhost:3006
+
+      # Logging
+      LOG_LEVEL: DEBUG
+
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      - ./data:/app/data
+      - ./agent_documents:/app/agent_documents
+      - ./agent_vectors:/app/agent_vectors
+      - ./vanna_cache:/app/vanna_cache
+      - ./logs:/app/logs
+
+    networks:
+      - ai-agents-dev-network
+    
+    depends_on:
+      - postgres-dev
+      - redis-dev
+    
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3006", "--reload"]
+
+networks:
+  ai-agents-dev-network:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
