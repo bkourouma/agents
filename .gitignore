@@ -27,14 +27,20 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+# Python build directories (but not frontend build)
+/build/
+build/lib/
+build/bdist*/
 develop-eggs/
-dist/
+# Python dist directories (but not frontend dist)
+/dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python lib directories (but not frontend/src/lib)
+/lib/
+/lib64/
+build/lib/
 parts/
 sdist/
 var/
@@ -164,16 +170,17 @@ cython_debug/
 ai_agent_platform.db
 test.db
 
-# Data directories
-data/
-sqlite_data/
-backup/
+# Data directories (runtime data, not source data)
+/data/
+/sqlite_data/
+/backup/
 
-# AI and ML cache directories
-agent_documents/
-agent_vectors/
-vanna_cache/
-chroma_db_data/
+# AI and ML cache directories (runtime data, recreated on server)
+/agent_documents/
+/agent_vectors/
+/vanna_cache/
+/chroma_db_data/
+# Legacy/development ChromaDB (not used in production)
 vanna_chromadb/
 test_vanna_chromadb/
 
@@ -181,9 +188,10 @@ test_vanna_chromadb/
 *.chroma
 chroma.sqlite3
 
-# Model cache directories
+# Model cache directories (but not source model files)
 .cache/
-models/
+/models/
+model_cache/
 sentence_transformers/
 transformers_cache/
 
@@ -246,6 +254,7 @@ bower_components
 
 # Compiled binary addons
 build/Release
+node_modules/build/
 
 # Dependency directories
 jspm_packages/
@@ -286,18 +295,24 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+# Frontend dist directories (specific to avoid conflicts)
+frontend/dist/
+frontend/build/
 
 # Gatsby files
 .cache/
-public
+# Gatsby public directory (but not all public directories)
+gatsby/public/
 
 # Vite build output
-dist/
-dist-ssr/
+frontend/dist/
+frontend/dist-ssr/
+**/dist/
+**/dist-ssr/
 
 # Rollup build output
-build/
+frontend/build/
+**/build/
 
 # Storybook build outputs
 .out
