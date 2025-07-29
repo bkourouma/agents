@@ -81,3 +81,6 @@ pyodbc>=4.0.0  # SQL Server support
 # WhatsApp Business API Integration
 httpx>=0.25.0  # Already included above but ensuring version
 cryptography>=41.0.0  # For webhook signature verification
+email-validator>=2.0.0
+asyncpg>=0.29.0
+pydantic[email]>=2.5.0
